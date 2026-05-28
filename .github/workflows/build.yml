@@ -115,19 +115,28 @@ jobs:
         # Ruby/bundler environment is active (avoids Homebrew Ruby conflicts).
         run: bundle exec pod install --project-directory=ios
 
+      - name: Install xcpretty
+        run: gem install xcpretty
+
       - name: Build .xcarchive (no-code-sign)
         working-directory: mobile
         run: |
+          set -o pipefail
           xcodebuild archive \
             -workspace ios/ShareToMac.xcworkspace \
             -scheme ShareToMac \
             -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -archivePath build/ShareToMac.xcarchive \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_ENTITLEMENTS="" \
             ONLY_ACTIVE_ARCH=NO \
-            -allowProvisioningUpdates
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            | xcpretty --color && exit ${PIPESTATUS[0]}
 
       - name: Package .xcarchive into unsigned .ipa
         working-directory: mobile
