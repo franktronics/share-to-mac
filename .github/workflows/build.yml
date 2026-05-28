@@ -40,14 +40,7 @@ jobs:
 
       - name: Build .app with PyInstaller
         working-directory: desktop
-        run: |
-          pyinstaller \
-            --name "ShareToMac" \
-            --windowed \
-            --onedir \
-            --clean \
-            --noconfirm \
-            main.py
+        run: pyinstaller ShareToMac.spec --clean --noconfirm
 
       - name: Install create-dmg
         run: brew install create-dmg
@@ -108,6 +101,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # bundler-cache installs gems declared in mobile/Gemfile (xcodeproj + cocoapods)
           bundler-cache: true
           working-directory: mobile
 
@@ -116,8 +110,10 @@ jobs:
         run: bundle exec ruby scripts/setup_xcode.rb
 
       - name: Install CocoaPods dependencies
-        working-directory: mobile/ios
-        run: bundle exec pod install
+        working-directory: mobile
+        # Run pod install via bundler from the mobile/ root so the correct
+        # Ruby/bundler environment is active (avoids Homebrew Ruby conflicts).
+        run: bundle exec pod install --project-directory=ios
 
       - name: Build .xcarchive (no-code-sign)
         working-directory: mobile
