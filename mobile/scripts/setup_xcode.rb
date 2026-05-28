@@ -55,9 +55,11 @@ def main
       next
     end
 
-    # Add file reference to the group
-    relative_path = file_path.relative_path_from(IOS_DIR)
-    file_ref = group.new_file(relative_path.to_s)
+    # Add file reference to the group.
+    # Pass only the filename — the group's sourceTree already anchors it
+    # to ios/ScreenCapture/, so using the full relative path would produce
+    # a double ScreenCapture/ScreenCapture/ prefix in the build system.
+    file_ref = group.new_file(filename)
 
     # Add to Sources build phase (only .swift and .m files are compiled)
     if filename.end_with?(".swift", ".m")
