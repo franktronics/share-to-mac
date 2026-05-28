@@ -1,0 +1,151 @@
+name: Build
+
+# Triggered on every v* tag push or manually.
+# Both jobs run in parallel on separate macOS runners.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+
+  # ────────────────────────────────────────────────
+  # Job 1 — macOS desktop app (.dmg)
+  # ────────────────────────────────────────────────
+  desktop:
+    name: Build Desktop (.dmg)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        working-directory: desktop
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .app with PyInstaller
+        working-directory: desktop
+        run: |
+          pyinstaller \
+            --name "ShareToMac" \
+            --windowed \
+            --onedir \
+            --clean \
+            --noconfirm \
+            main.py
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Package .app into .dmg
+        working-directory: desktop
+        run: |
+          mkdir -p dist/dmg
+          # --skip-jenkins disables the AppleScript Finder layout step,
+          # which fails on headless CI runners (no GUI session).
+          create-dmg \
+            --volname "ShareToMac" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "ShareToMac.app" 150 185 \
+            --hide-extension "ShareToMac.app" \
+            --app-drop-link 450 185 \
+            --skip-jenkins \
+            "dist/dmg/ShareToMac.dmg" \
+            "dist/ShareToMac/"
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShareToMac-macOS
+          path: desktop/dist/dmg/ShareToMac.dmg
+          retention-days: 30
+
+      - name: Attach .dmg to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/dist/dmg/ShareToMac.dmg
+
+  # ────────────────────────────────────────────────
+  # Job 2 — iOS mobile app (unsigned .ipa)
+  # ────────────────────────────────────────────────
+  mobile:
+    name: Build Mobile (unsigned .ipa)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Node dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
+
+      - name: Add ScreenCapture files to Xcode project
+        working-directory: mobile
+        run: bundle exec ruby scripts/setup_xcode.rb
+
+      - name: Install CocoaPods dependencies
+        working-directory: mobile/ios
+        run: bundle exec pod install
+
+      - name: Build .xcarchive (no-code-sign)
+        working-directory: mobile
+        run: |
+          xcodebuild archive \
+            -workspace ios/ShareToMac.xcworkspace \
+            -scheme ShareToMac \
+            -configuration Release \
+            -archivePath build/ShareToMac.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            -allowProvisioningUpdates
+
+      - name: Package .xcarchive into unsigned .ipa
+        working-directory: mobile
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -r build/ShareToMac.xcarchive/Products/Applications/ShareToMac.app \
+                build/ipa/Payload/ShareToMac.app
+          cd build/ipa
+          zip -r ../ShareToMac-unsigned.ipa Payload
+
+      - name: Upload unsigned .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShareToMac-iOS-unsigned
+          path: mobile/build/ShareToMac-unsigned.ipa
+          retention-days: 30
+
+      - name: Attach .ipa to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile/build/ShareToMac-unsigned.ipa
